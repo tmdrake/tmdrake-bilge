@@ -1,30 +1,35 @@
+<p align="center">
+  <img src="docs/banner.png" alt="tmdrake-bilge. A top-float pump timer for a dehumidifier tank. Three minutes empties the tank. A ten minute cap stops a stuck float.">
+</p>
+
 # tmdrake-bilge
 
 Pump timer for a dehumidifier tank. The float switch is on the top of the tank. It closes when the water reaches the top. It cannot see empty.
 
-The sketch is `TMDRAKE_Timer.ino`. Serial monitor at **115200** baud.
+The sketch is `TMDRAKE_Timer.ino`. Open the serial monitor at **115200** baud and press `?` for the menu.
 
-## What the float means
+## Timeouts
 
-HIGH on pin 2 means the float is up: the tank is full. The pump turns on.
+Both limits are `unsigned long` milliseconds at the top of the sketch.
 
-When the float drops, the water left is below the switch, where this sensor cannot see it. The pump stays on for `EMPTY_RUNON_MS` (3 minutes). That is the run that empties the tank. Then the pump turns off and the sketch calls the tank empty. That call is still a guess: there is no bottom sensor.
+| Constant | Default | What it does |
+| --- | --- | --- |
+| `EMPTY_RUNON_MS` | 3 minutes | After the float drops, the motor keeps running and empties the water below the switch. Then it turns off and the sketch calls the tank empty. That call is still a guess. There is no bottom sensor. |
+| `MAX_RUN_MS` | 10 minutes | One continuous run, including the 3 minute pump-down, cannot last longer than this. Ten minutes is past a normal empty, so the cap does not cut that pump-down short. |
 
-`MAX_RUN_MS` (10 minutes) is the long timeout. One continuous run, including the 3 minute pump-down, cannot last longer than this. Ten minutes is past a normal empty, so the cap does not cut that pump-down short. A float stuck up, or a pump that never pulls the level off the top, latches the motor off (`FAULT`) until the float has been down for a full pump-down interval.
+A float stuck up, or a pump that never pulls the level off the top, latches the motor off (`FAULT`) until the float has been down for a full pump-down interval.
 
-The 10 minute clock does not restart if the float bounces back up while the pump is already running.
-
-Both limits are `unsigned long` milliseconds at the top of the sketch. `MAX_RUN_MS` has to stay longer than a normal pump-down plus `EMPTY_RUNON_MS`.
+The 10 minute clock does not restart if the float bounces back up while the pump is already running. `MAX_RUN_MS` has to stay longer than a normal pump-down plus `EMPTY_RUNON_MS`.
 
 ## Serial menu
 
-115200 baud, one letter, no enter. The live screen pauses while the menu is open so the text stays put. The pump logic keeps running.
+One letter, no enter. The live screen pauses while the menu is open so the text stays put. The pump logic keeps running.
 
 | Key | Action |
 | --- | --- |
-| `?` | Menu |
-| `o` | How many times the motor has run, total run time, this run, last run |
-| `s` | Live diagnostic screen |
+| `?` | Menu. `h` and `m` do the same. |
+| `o` | How many times the motor has run, total run time, this run, and the last run. |
+| `s` | Live diagnostic screen. |
 
 `runs` counts each time the motor turns on. `odo` / `total run` is the sum of those runs since power-up. Neither value is kept in EEPROM. A power cycle starts them over. The total wraps after 49.7 days of motor-on time, not 49.7 days of wall clock.
 
@@ -34,30 +39,30 @@ The same `runs` and `odo` lines are on the live screen.
 
 The screen times each empty guess against its deadline.
 
-- `+N ms LATE` means the pump turned off after the deadline. After this rewrite that should be a few milliseconds, not a line of serial delay.
-- `float back` / `EARLY` means the float reached the top again before the guess finished. The tank was not empty. The millisecond figure is how early the float cancelled the guess.
-- `max-run cap` means the forever-limit won. The motor is latched off.
+- `+N ms LATE` means the pump turned off after the deadline. That should be a few milliseconds, not a line of serial delay.
+- `float back` / `EARLY` means the float reached the top again before the 3 minute pump-down finished. The tank was not empty. The millisecond figure is how early the float cancelled the guess.
+- `max-run cap` means the 10 minute limit won. The motor is latched off.
 
-`refill` is how long the float stayed down after an empty guess, until water reached the top again. A refill of a few seconds means the guess stopped the pump while the tank was still high. `since guess` counts that wait live.
+`refill` is how long the float stayed down after an empty guess, until water reached the top again. A refill of a few seconds means the pump stopped while the tank was still high. `since guess` counts that wait live.
 
 `at top` is how long the float stayed up while the pump ran. A long time there means the pump is not pulling the level off the top switch.
 
 The empty-timer average uses the last 16 empty guesses only. Float-back and max-run trips are counted beside it and are not mixed into the average.
 
-Uptime comes from `millis()` and wraps at about 49.7 days. Cycle and fault counts wrap at 65535.
+Uptime comes from `millis()` and wraps at about 49.7 days. Empty-guess and fault counts wrap at 65535. The run counter and the odometer are wider and wrap much later.
 
 ## Wiring
 
 | Signal | Pin | Notes |
 | --- | --- | --- |
 | Top float | 2 | Active HIGH when the tank is full. Add a pulldown to ground so a loose wire reads LOW. |
-| Pump | 13 | Onboard LED follows the pump. Use a relay or MOSFET. Do not hang the motor on the pin. |
+| Pump | 13 | The onboard LED follows the pump. Use a relay or MOSFET. Do not hang the motor on the pin. |
 
-Pin 13 stays the output so existing LED wiring still works.
+Pin 13 stays the output so existing LED wiring still works. An Uno has no internal pulldown, and a pullup would fight this active-HIGH float.
 
 ## Timer wrap
 
-`millis()` wraps every 2^32 milliseconds. The old sketch stored `timerEnd = now + duration` and treated the timer as running while `now < timerEnd`. When a falling edge landed in the last 3 minutes before the wrap, `timerEnd` wrapped to a small number, the comparison failed, and the pump turned off immediately.
+`millis()` wraps every 2^32 milliseconds (about 49.7 days). The old sketch stored `timerEnd = now + duration` and treated the timer as running while `now < timerEnd`. When the float dropped in the last 3 minutes before that wrap, `timerEnd` became a small number, the comparison failed, and the pump turned off immediately.
 
 Timers now store a start time, a duration, and an armed flag. A timer is due when `(now - start) >= duration`. Unsigned subtraction stays valid across the wrap. Zero is not used as a sentinel.
 
@@ -65,7 +70,7 @@ The loop does not call `delay()`. The float is debounced for 50 ms without block
 
 ## Screen
 
-One block on state change, and about once a second. Lines are not printed on every pass.
+One block on state change, and about once a second. The sketch does not print a line on every pass.
 
 ```
 ====== tmdrake-bilge ======
