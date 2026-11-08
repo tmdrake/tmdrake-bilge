@@ -1,0 +1,8 @@
+build/
+*.elf
+*.hex
+*.eep
+.vscode/
+.idea/
+*.swp
+*~
