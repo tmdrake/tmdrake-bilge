@@ -22,7 +22,8 @@ const unsigned long EMPTY_RUNON_MS = 3UL * 60UL * 1000UL;
 // pump-down. Ten minutes is past a normal empty.
 const unsigned long MAX_RUN_MS = 10UL * 60UL * 1000UL;
 
-const unsigned long DEBOUNCE_MS = 50UL;   // float must hold a level this long before it counts
+const unsigned long DEBOUNCE_MS = 50UL;   // a new float level must hold this long before it counts
+const unsigned long GLITCH_MS = 20UL;     // a shorter spike does not cancel that wait
 const unsigned long SCREEN_MS = 1000UL;   // live screen refresh, also on every state change
 const uint8_t EMPTY_RING = 16;            // last N empty-guess errors kept for the average
 const unsigned long SERIAL_BAUD = 115200UL;

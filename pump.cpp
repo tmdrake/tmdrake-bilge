@@ -1,22 +1,27 @@
 /*
   Float input and the pump state machine.
 
-  IDLE        float rises            -> PUMPING, arm the 10 minute cap
+  IDLE        float is FULL          -> PUMPING, arm the 10 minute cap
   PUMPING     float drops            -> EMPTY_RUNON, arm the 3 minute guess
   PUMPING     cap expires            -> FAULT, motor off
   EMPTY_RUNON guess expires          -> IDLE, motor off, tank called empty
   EMPTY_RUNON float rises            -> PUMPING, cap is NOT restarted
   EMPTY_RUNON cap expires            -> FAULT, motor off
+  FAULT       float rises again      -> PUMPING, new cap (it went down, then up)
+  FAULT       float stays FULL       -> stay off (stuck switch, no new edge)
   FAULT       float down for 3 min   -> IDLE
 
-  The cap is not restarted when the float returns. A bouncing float
-  would otherwise run the motor forever.
+  A rise during the empty guess does not restart the cap. A rise after
+  a fault does: the float had to go down before it could come back up.
 */
 
 #include "bilge.h"
 
-static bool candidateFull = false;         // latest raw level that is not yet accepted
-static unsigned long candidateSince = 0;   // millis() when that raw level started
+static bool arming = false;               // a level different from stableFull is being timed
+static bool armLevel = false;             // that pending level
+static unsigned long armSince = 0;         // when the pending level first appeared
+static bool opposing = false;             // a spike against the pending level is being timed
+static unsigned long opposeSince = 0;      // when that spike started
 
 static long emptySamples[EMPTY_RING];  // error of each finished 3 minute guess, milliseconds
 static uint8_t emptyCount = 0;         // how many of those slots are filled, up to 16
@@ -98,6 +103,7 @@ static void startCycle(unsigned long now) {
   }
   armTimer(maxRun, now, MAX_RUN_MS);        // 10 minutes from this start, not from a later bounce
   disarmTimer(emptyRun);                    // no empty guess until the float actually drops
+  disarmTimer(faultClear);                  // a new cycle leaves the fault latch behind
   motorOnAt = now;                          // whole-run clock, including the later 3 minute guess
   topSince = now;                           // "at top" clock starts as the float reaches FULL
   atTopMs = 0;                              // not known until the float drops
@@ -168,30 +174,51 @@ static void serviceFault(unsigned long now) {
 
 void seedFloat(unsigned long now, bool full) {
   stableFull = full;          // accept the boot reading without waiting 50 ms
-  candidateFull = full;       // so the next loop does not treat it as a new edge
-  candidateSince = now;
+  arming = false;             // do not turn that boot reading into a second edge
   if (full) startCycle(now);  // tank already at the top: pump on, cap armed
 }
 
 void debounceFloat(unsigned long now, bool& rose, bool& fell) {
-  bool rawFull = digitalRead(FLOAT_PIN) == HIGH;          // one sample of pin 2
-  if (rawFull != candidateFull) {
-    candidateFull = rawFull;                              // level changed: start the 50 ms stable timer
-    candidateSince = now;
-    return;                                               // not an edge yet
+  bool rawFull = digitalRead(FLOAT_PIN) == HIGH;  // one sample of pin 2
+
+  if (!arming) {
+    if (rawFull == stableFull) return;  // still at the level we already accepted
+    arming = true;                      // the switch moved: start the confirm timer
+    armLevel = rawFull;
+    armSince = now;
+    opposing = false;
+    return;
   }
-  if (candidateFull != stableFull &&
-      (unsigned long)(now - candidateSince) >= DEBOUNCE_MS) {
-    stableFull = candidateFull;                          // the new level held long enough
-    if (stableFull) rose = true;                         // water reached the top
-    else fell = true;                                   // water left the top
+
+  if (rawFull == armLevel) {
+    opposing = false;  // a one-sample spike does not throw away the confirm time
+    if ((unsigned long)(now - armSince) >= DEBOUNCE_MS) {
+      stableFull = armLevel;            // the new level held for the full debounce
+      arming = false;
+      if (armLevel) rose = true;        // water reached the top
+      else fell = true;                 // water left the top
+    }
+    return;
+  }
+
+  // Sample went back toward the old level. Wait before cancelling the edge,
+  // or contact bounce makes a real trip start its 50 ms over forever.
+  if (!opposing) {
+    opposing = true;
+    opposeSince = now;
+    return;
+  }
+  if ((unsigned long)(now - opposeSince) >= GLITCH_MS) {
+    arming = false;  // the new level did not hold; keep the accepted one
   }
 }
 
 void servicePump(unsigned long now, bool rose, bool fell) {
   switch (state) {
     case STATE_IDLE:
-      if (rose) startCycle(now);             // only a rise matters while idle; a fall is ignored
+      // Level as well as edge. A rise accepted in the same pass as the
+      // empty guess would otherwise leave us idle while the tank is full.
+      if (rose || stableFull) startCycle(now);
       break;
 
     case STATE_PUMPING:
@@ -208,7 +235,10 @@ void servicePump(unsigned long now, bool rose, bool fell) {
       break;
 
     case STATE_FAULT:
-      serviceFault(now);                     // rises do not start the pump while latched
+      // A rise is a new trip: the float went down, then came back up.
+      // A stuck HIGH never rises, so the latch still holds for that case.
+      if (rose) startCycle(now);
+      else serviceFault(now);
       break;
   }
 }

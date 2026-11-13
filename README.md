@@ -29,7 +29,7 @@ Both limits are `unsigned long` milliseconds in `bilge.h`.
 | `EMPTY_RUNON_MS` | 3 minutes | After the float drops, the motor keeps running and empties the water below the switch. Then it turns off and the sketch calls the tank empty. That call is still a guess. There is no bottom sensor. |
 | `MAX_RUN_MS` | 10 minutes | One continuous run, including the 3 minute pump-down, cannot last longer than this. Ten minutes is past a normal empty, so the cap does not cut that pump-down short. |
 
-A float stuck up, or a pump that never pulls the level off the top, latches the motor off (`FAULT`) until the float has been down for a full pump-down interval.
+A float stuck up, or a pump that never pulls the level off the top, latches the motor off (`FAULT`). The latch holds while the float stays up, because a stuck switch never makes a new edge. A later rise, meaning the float went down and then came back, starts a new cycle. Leaving the float down for a full pump-down interval also clears the latch back to idle.
 
 The 10 minute clock does not restart if the float bounces back up while the pump is already running. `MAX_RUN_MS` has to stay longer than a normal pump-down plus `EMPTY_RUNON_MS`.
 
