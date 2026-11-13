@@ -257,6 +257,7 @@ static void printMenu() {
   Serial.println(F("====== menu ======"));
   Serial.println(F("s  live diagnostic screen"));  // resume the repeating block
   Serial.println(F("o  motor runs and odometer"));
+  Serial.println(F("t  3 min test pump-down"));
   Serial.println(F("?  this menu"));
   Serial.println(F("Live screen is paused."));    // the pump logic keeps running
   Serial.println();
@@ -297,6 +298,14 @@ void handleKey(char c, unsigned long now) {
     return;
   }
   // Ignore anything else so line noise cannot pause the live screen.
+  if (c == 't') {
+    testPumpDown(now);              // motor on for the 3 minute empty run, if the float is down
+    screenPos = screenLen;
+    liveScreen = true;              // show the run on the live screen
+    screenPending = true;
+    screenStarted = false;
+    return;
+  }
   if (c != '?' && c != 'o' && c != 'h' && c != 'm') return;
   screenPos = screenLen;            // abandon the live frame
   liveScreen = false;               // stop the 1 Hz redraw so this text stays put

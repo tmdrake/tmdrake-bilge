@@ -111,6 +111,7 @@ unsigned long odometerMs(unsigned long now);             // saved time plus the 
 void setMotor(bool on, unsigned long now);               // change the pin, then save the count or the added time
 
 void seedFloat(unsigned long now, bool full);            // boot reading, no fake edge
+void testPumpDown(unsigned long now);                   // pretend the float just dropped; run 3 minutes
 void debounceFloat(unsigned long now, bool& rose, bool& fell);  // rose/fell set only on an accepted edge
 void servicePump(unsigned long now, bool rose, bool fell);      // one step of the state machine
 EmptyStats emptyErrorStats();                            // average of the empty-guess errors only

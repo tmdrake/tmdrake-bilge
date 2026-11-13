@@ -172,6 +172,13 @@ static void serviceFault(unsigned long now) {
   }
 }
 
+void testPumpDown(unsigned long now) {
+  if (state != STATE_IDLE && state != STATE_FAULT) return;  // already running; do not stack another run
+  if (stableFull) return;                                   // water is really at the top; do not pretend it dropped
+  startCycle(now);                                          // motor on, 10 minute cap, count this start
+  beginEmptyGuess(now);                                     // float is down, so the 3 minute empty run starts now
+}
+
 void seedFloat(unsigned long now, bool full) {
   stableFull = full;          // accept the boot reading without waiting 50 ms
   arming = false;             // do not turn that boot reading into a second edge
