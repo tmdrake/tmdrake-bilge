@@ -110,8 +110,8 @@ static void putStateName() {
   switch (state) {
     case STATE_IDLE: putP(PSTR("IDLE")); break;                  // waiting for the float
     case STATE_PUMPING: putP(PSTR("PUMPING")); break;            // float is at the top
-    case STATE_EMPTY_RUNON: putP(PSTR("EMPTY-RUNON")); break;    // 3 minute guess in progress
-    case STATE_FAULT: putP(PSTR("FAULT")); break;                // 10 minute cap latched the motor off
+    case STATE_EMPTY_RUNON: putP(PSTR("EMPTY-RUNON")); break;    // 9 minute empty in progress
+    case STATE_FAULT: putP(PSTR("FAULT")); break;                // 15 minute cap latched the motor off
   }
 }
 
@@ -123,9 +123,9 @@ static void putLastFire() {
   }
 
   switch (lastReason) {
-    case FIRE_EMPTY: putP(PSTR("empty guess ")); break;    // the 3 minutes ran out
+    case FIRE_EMPTY: putP(PSTR("empty guess ")); break;    // the 9 minutes ran out
     case FIRE_EARLY: putP(PSTR("float back ")); break;     // water returned to the top first
-    case FIRE_MAX: putP(PSTR("max-run cap ")); break;      // the 10 minute cap won
+    case FIRE_MAX: putP(PSTR("max-run cap ")); break;      // the 15 minute cap won
     default: putP(PSTR("fire ")); break;
   }
   putErr(lastError);                 // how far that event was from its deadline
@@ -139,7 +139,7 @@ static void putLastFire() {
   if (lastFloatStillFull) {
     putP(PSTR("float still FULL\r\n"));        // the level never left the top
   } else if (lastHoldArmed) {
-    putP(PSTR("hold left "));                  // the cap cut the 3 minute guess short
+    putP(PSTR("hold left "));                  // the cap cut the 9 minute empty short
     putDur(lastHoldLeft);
     putP(PSTR("\r\n"));
   }
@@ -213,7 +213,7 @@ static void buildScreen(unsigned long now) {
 
   if (state == STATE_PUMPING || state == STATE_EMPTY_RUNON) {
     putTimerLine(PSTR("empty"), emptyRun, now);             // "--" during PUMPING, counting during the guess
-    putTimerLine(PSTR("max  "), maxRun, now);               // the 10 minute cap
+    putTimerLine(PSTR("max  "), maxRun, now);               // the 15 minute cap
   }
   if (state == STATE_FAULT) {
     if (stableFull) putP(PSTR("clear wait, float FULL\r\n"));  // clear cannot start until the float drops
@@ -257,7 +257,7 @@ static void printMenu() {
   Serial.println(F("====== menu ======"));
   Serial.println(F("s  live diagnostic screen"));  // resume the repeating block
   Serial.println(F("o  motor runs and odometer"));
-  Serial.println(F("t  3 min test pump-down"));
+  Serial.println(F("t  9 min test pump-down"));
   Serial.println(F("?  this menu"));
   Serial.println(F("Live screen is paused."));    // the pump logic keeps running
   Serial.println();
@@ -299,7 +299,7 @@ void handleKey(char c, unsigned long now) {
   }
   // Ignore anything else so line noise cannot pause the live screen.
   if (c == 't') {
-    testPumpDown(now);              // motor on for the 3 minute empty run, if the float is down
+    testPumpDown(now);              // motor on for the 9 minute empty, if the float is down
     screenPos = screenLen;
     liveScreen = true;              // show the run on the live screen
     screenPending = true;

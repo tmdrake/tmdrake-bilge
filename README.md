@@ -14,7 +14,7 @@ Open the serial monitor at **115200** baud and press `?` for the menu.
 
 | File | What it holds |
 | --- | --- |
-| `bilge.h` | Pins, the 3 minute and 10 minute limits, and the shared names |
+| `bilge.h` | Pins, the 9 minute empty and the 15 minute cap, and the shared names |
 | `pump.cpp` | Float debounce and the pump states |
 | `odometer.cpp` | Run count, runtime, and the EEPROM record |
 | `screen.cpp` | Live diagnostic screen and the one-key menu |
@@ -26,12 +26,12 @@ Both limits are `unsigned long` milliseconds in `bilge.h`.
 
 | Constant | Default | What it does |
 | --- | --- | --- |
-| `EMPTY_RUNON_MS` | 3 minutes | After the float drops, the motor keeps running and empties the water below the switch. Then it turns off and the sketch calls the tank empty. That call is still a guess. There is no bottom sensor. |
-| `MAX_RUN_MS` | 10 minutes | One continuous run, including the 3 minute pump-down, cannot last longer than this. Ten minutes is past a normal empty, so the cap does not cut that pump-down short. |
+| `EMPTY_RUNON_MS` | 9 minutes | After the float drops, the motor keeps running and empties the water below the switch. Manual tests took three 3 minute runs, so one drop is 9 minutes. Then the sketch calls the tank empty. That call is still a guess. There is no bottom sensor. |
+| `MAX_RUN_MS` | 15 minutes | One continuous run, including the 9 minute empty, cannot last longer than this. Fifteen minutes leaves room for the time the float stays up, so the cap does not cut a normal empty short. |
 
 A float stuck up, or a pump that never pulls the level off the top, latches the motor off (`FAULT`). The latch holds while the float stays up, because a stuck switch never makes a new edge. A later rise, meaning the float went down and then came back, starts a new cycle. Leaving the float down for a full pump-down interval also clears the latch back to idle.
 
-The 10 minute clock does not restart if the float bounces back up while the pump is already running. `MAX_RUN_MS` has to stay longer than a normal pump-down plus `EMPTY_RUNON_MS`.
+The 15 minute clock does not restart if the float bounces back up while the pump is already running. `MAX_RUN_MS` has to stay longer than the time at the top plus `EMPTY_RUNON_MS`.
 
 ## Serial menu
 
@@ -52,8 +52,8 @@ The same `runs` and `odo` lines are on the live screen.
 The screen times each empty guess against its deadline.
 
 - `+N ms LATE` means the pump turned off after the deadline. That should be a few milliseconds, not a line of serial delay.
-- `float back` / `EARLY` means the float reached the top again before the 3 minute pump-down finished. The tank was not empty. The millisecond figure is how early the float cancelled the guess.
-- `max-run cap` means the 10 minute limit won. The motor is latched off.
+- `float back` / `EARLY` means the float reached the top again before the 9 minute empty finished. The tank was not empty. The millisecond figure is how early the float cancelled the empty run.
+- `max-run cap` means the 15 minute limit won. The motor is latched off.
 
 `refill` is how long the float stayed down after an empty guess, until water reached the top again. A refill of a few seconds means the pump stopped while the tank was still high. `since guess` counts that wait live.
 

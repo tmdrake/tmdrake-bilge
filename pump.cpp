@@ -1,15 +1,15 @@
 /*
   Float input and the pump state machine.
 
-  IDLE        float is FULL          -> PUMPING, arm the 10 minute cap
-  PUMPING     float drops            -> EMPTY_RUNON, arm the 3 minute guess
+  IDLE        float is FULL          -> PUMPING, arm the 15 minute cap
+  PUMPING     float drops            -> EMPTY_RUNON, arm the 9 minute empty
   PUMPING     cap expires            -> FAULT, motor off
   EMPTY_RUNON guess expires          -> IDLE, motor off, tank called empty
   EMPTY_RUNON float rises            -> PUMPING, cap is NOT restarted
   EMPTY_RUNON cap expires            -> FAULT, motor off
   FAULT       float rises again      -> PUMPING, new cap (it went down, then up)
   FAULT       float stays FULL       -> stay off (stuck switch, no new edge)
-  FAULT       float down for 3 min   -> IDLE
+  FAULT       float down for 9 min   -> IDLE
 
   A rise during the empty guess does not restart the cap. A rise after
   a fault does: the float had to go down before it could come back up.
@@ -23,7 +23,7 @@ static unsigned long armSince = 0;         // when the pending level first appea
 static bool opposing = false;             // a spike against the pending level is being timed
 static unsigned long opposeSince = 0;      // when that spike started
 
-static long emptySamples[EMPTY_RING];  // error of each finished 3 minute guess, milliseconds
+static long emptySamples[EMPTY_RING];  // error of each finished 9 minute empty, milliseconds
 static uint8_t emptyCount = 0;         // how many of those slots are filled, up to 16
 static uint8_t emptyNext = 0;          // slot that will be overwritten next
 
@@ -94,17 +94,17 @@ static void rememberFire(FireReason reason, long errorMs, unsigned long now,
 }
 
 // A new cycle only. Do not call this when the float returns mid-run,
-// or the 10 minute cap would start over.
+// or the 15 minute cap would start over.
 static void startCycle(unsigned long now) {
   if (waitingRefill) {                                              // the tank was called empty and is full again
     refillMs = (unsigned long)(now - inferredEmptyAt);              // how long that took
     refillValid = true;                                            // the screen can show the number
     waitingRefill = false;                                         // the live "since guess" clock stops
   }
-  armTimer(maxRun, now, MAX_RUN_MS);        // 10 minutes from this start, not from a later bounce
+  armTimer(maxRun, now, MAX_RUN_MS);        // 15 minutes from this start, not from a later bounce
   disarmTimer(emptyRun);                    // no empty guess until the float actually drops
   disarmTimer(faultClear);                  // a new cycle leaves the fault latch behind
-  motorOnAt = now;                          // whole-run clock, including the later 3 minute guess
+  motorOnAt = now;                          // whole-run clock, including the later 9 minute empty
   topSince = now;                           // "at top" clock starts as the float reaches FULL
   atTopMs = 0;                              // not known until the float drops
   setMotor(true, now);                      // pin on, run count saved
@@ -113,7 +113,7 @@ static void startCycle(unsigned long now) {
 
 static void beginEmptyGuess(unsigned long now) {
   atTopMs = (unsigned long)(now - topSince);  // how long the water stayed at the top switch
-  armTimer(emptyRun, now, EMPTY_RUNON_MS);    // 3 more minutes to empty what the float cannot see
+  armTimer(emptyRun, now, EMPTY_RUNON_MS);    // 9 more minutes to empty what the float cannot see
   state = STATE_EMPTY_RUNON;                  // motor stays on; the cap stays armed
 }
 
@@ -121,7 +121,7 @@ static void floatReturned(unsigned long now) {
   long errorMs = timerError(now, emptyRun.startedAt, emptyRun.duration);  // negative: guess cancelled early
   rememberFire(FIRE_EARLY, errorMs, now, true, false, 0);                  // water is back at the top
   earlyCount++;                                                            // not mixed into the empty-guess average
-  disarmTimer(emptyRun);                                                   // the 3 minute guess is over
+  disarmTimer(emptyRun);                                                   // the 9 minute empty is over
   topSince = now;                                                          // a new "at top" interval starts
   atTopMs = 0;
   state = STATE_PUMPING;                                                   // maxRun is left running from the original start
@@ -141,7 +141,7 @@ static void guessEmpty(unsigned long now) {
 }
 
 static void tripMax(unsigned long now) {
-  bool holdArmed = emptyRun.armed;                                 // true if we were still in the 3 minute guess
+  bool holdArmed = emptyRun.armed;                                 // true if we were still in the 9 minute empty
   unsigned long holdLeft = holdArmed ? timerLeft(emptyRun, now) : 0;
   if (state == STATE_PUMPING) {
     atTopMs = (unsigned long)(now - topSince);                     // float never dropped, so close the at-top clock now
@@ -154,7 +154,7 @@ static void tripMax(unsigned long now) {
   disarmTimer(faultClear);
   setMotor(false, now);                     // latched off, and the partial run's minutes are saved
   state = STATE_FAULT;
-  if (!stableFull) armTimer(faultClear, now, EMPTY_RUNON_MS);  // float already down: start the 3 minute clear
+  if (!stableFull) armTimer(faultClear, now, EMPTY_RUNON_MS);  // float already down: start the 9 minute clear
 }
 
 static void serviceFault(unsigned long now) {
@@ -163,7 +163,7 @@ static void serviceFault(unsigned long now) {
     return;                                  // stay in FAULT, motor stays off
   }
   if (!faultClear.armed) {
-    armTimer(faultClear, now, EMPTY_RUNON_MS);  // float just went down: require a full 3 quiet minutes
+    armTimer(faultClear, now, EMPTY_RUNON_MS);  // float just went down: require a full 9 quiet minutes
     return;
   }
   if (timerDue(faultClear, now)) {
@@ -175,8 +175,8 @@ static void serviceFault(unsigned long now) {
 void testPumpDown(unsigned long now) {
   if (state != STATE_IDLE && state != STATE_FAULT) return;  // already running; do not stack another run
   if (stableFull) return;                                   // water is really at the top; do not pretend it dropped
-  startCycle(now);                                          // motor on, 10 minute cap, count this start
-  beginEmptyGuess(now);                                     // float is down, so the 3 minute empty run starts now
+  startCycle(now);                                          // motor on, 15 minute cap, count this start
+  beginEmptyGuess(now);                                     // float is down, so the 9 minute empty starts now
 }
 
 void seedFloat(unsigned long now, bool full) {
@@ -230,7 +230,7 @@ void servicePump(unsigned long now, bool rose, bool fell) {
 
     case STATE_PUMPING:
       if (timerDue(maxRun, now)) tripMax(now);       // cap first, so a stuck float cannot run forever
-      else if (fell) beginEmptyGuess(now);           // float dropped: keep pumping for 3 minutes
+      else if (fell) beginEmptyGuess(now);           // float dropped: keep pumping for 9 minutes
       break;
 
     case STATE_EMPTY_RUNON:
@@ -238,7 +238,7 @@ void servicePump(unsigned long now, bool rose, bool fell) {
       // guess in the same pass: water is at the top, so the tank is not empty.
       if (timerDue(maxRun, now)) tripMax(now);
       else if (rose) floatReturned(now);
-      else if (timerDue(emptyRun, now)) guessEmpty(now);  // 3 minutes done: call the tank empty
+      else if (timerDue(emptyRun, now)) guessEmpty(now);  // 9 minutes done: call the tank empty
       break;
 
     case STATE_FAULT:
